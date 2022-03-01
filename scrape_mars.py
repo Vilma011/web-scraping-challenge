@@ -1,436 +1,148 @@
- coding: utf-8
-
-# In[1]:
-
-
-# Dependencies
-from bs4 import BeautifulSoup
-import requests
-import pymongo
+# Import Splinter, BeautifulSoup, and Pandas
 from splinter import Browser
+from bs4 import BeautifulSoup as soup
 import pandas as pd
-from time import sleep
+import datetime as dt
+from webdriver_manager.chrome import ChromeDriverManager
 
-def init_browser():
-    # @NOTE: Replace the path with your actual path to the chromedriver
-    executable_path = {"executable_path": "/usr/local/bin/chromedriver"}
-    return Browser("chrome", **executable_path, headless=False)
 
-def scrape():
-    browser = init_browser()
-    # create mars_data dict that we can insert into mongo
-    mars_data = {}
-    # In[2]:
+def scrape_all():
+    # Initiate headless driver for deployment
+    executable_path = {'executable_path': ChromeDriverManager().install()}
+    browser = Browser('chrome', **executable_path, headless=True)
 
+    news_title, news_paragraph = mars_news(browser)
 
-    # URL of page to be scraped
-    url = 'https://mars.nasa.gov/news/?page=0&per_page=40&order=publish_date+desc%2Ccreated_at+desc&search=&category=19%2C165%2C184%2C204&blank_scope=Latest'
+    # Run all scraping functions and store results in a dictionary
+    data = {
+        "news_title": news_title,
+        "news_paragraph": news_paragraph,
+        "featured_image": featured_image(browser),
+        "facts": mars_facts(),
+        "hemispheres": hemispheres(browser),
+        "last_modified": dt.datetime.now()
+    }
 
+    # Stop webdriver and return data
+    browser.quit()
+    return data
 
-    # In[3]:
 
+def mars_news(browser):
 
-    # Retrieve page with the requests module
-    response = requests.get(url)
-
-
-    # In[4]:
-
-
-    #Print response text
-    response.text
-
-
-    # In[5]:
-
-
-    # Create BeautifulSoup object; parse with 'html.parser'
-    soup = BeautifulSoup(response.text, 'html.parser')
-
-
-    # In[6]:
-
-
-    # Examine the results via prettyify, then determine element that contains News Title and Paragraph Text.
-    print(soup.prettify())
-
-
-    # In[7]:
-
-
-    # Extract the title of the HTML document
-    soup.title
-
-
-    # In[8]:
-
-
-    # Extract the text of the title
-    soup.title.text
-
-
-    # In[9]:
-
-
-    # Clean up the text and assign it to a variable that can be called later
-    news_title = soup.title.text.strip()
-
-
-    # In[10]:
-
-
-    # Print title variable
-    news_title
-
-
-    # In[11]:
-
-
-    # Extract the contents of the HTML body
-    soup.body
-
-
-    # In[12]:
-
-
-    # Extract the text of the body
-    soup.body.text
-
-
-    # In[13]:
-
-
-    # Extract all paragraph elements
-    soup.body.find_all('p')
-
-
-    # In[14]:
-
-
-    # Text of the first paragraph
-    soup.body.p.text
-
-
-    # In[15]:
-
-
-    # Clean up the text and assign to a variable that can be called later
-    news_p = soup.body.p.text.strip()
-
-
-    # In[16]:
-
-
-    # Print paragraph variable
-    news_p
-
-
-    # In[17]:
-
-
-    # # https://splinter.readthedocs.io/en/latest/drivers/chrome.html
-    # get_ipython().system('which chromedriver')
-
-
-    # In[18]:
-
-
-    executable_path = {'executable_path': '/usr/local/bin/chromedriver'}
-    browser = Browser('chrome', **executable_path, headless=False)
-
-
-    # In[19]:
-
-
-    url = 'https://www.jpl.nasa.gov/spaceimages/?search=&category=Mars'
+    # Scrape Mars News
+    # Visit the mars nasa news site
+    url = 'https://redplanetscience.com/'
     browser.visit(url)
 
+    # Optional delay for loading the page
+    browser.is_element_present_by_css('div.list_text', wait_time=1)
 
-    # In[20]:
-
-
+    # Convert the browser html to a soup object and then quit the browser
     html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-    browser.click_link_by_partial_text('FULL IMAGE')
-    sleep(60)
-    html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-    browser.click_link_by_partial_text('more info')
+    news_soup = soup(html, 'html.parser')
+
+    # Add try/except for error handling
+    try:
+        slide_elem = news_soup.select_one('div.list_text')
+        # Use the parent element to find the first 'a' tag and save it as 'news_title'
+        news_title = slide_elem.find("div", class_="content_title").get_text()
+        # Use the parent element to find the paragraph text
+        news_p = slide_elem.find("div", class_="article_teaser_body").get_text()
+
+    except AttributeError:
+        return None, None
+
+    return news_title, news_p
 
 
-    # In[21]:
-
-
-    html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-
-
-    # In[22]:
-
-
-    photo_full = soup.find('img', class_='main_image')['src']
-
-
-    # In[23]:
-
-
-    photo_full
-
-
-    # In[24]:
-
-
-    photo_full = "https://www.jpl.nasa.gov"+photo_full
-
-
-    # In[25]:
-
-
-    url = 'https://twitter.com/marswxreport?lang=en'
+def featured_image(browser):
+    # Visit URL
+    url = 'https://spaceimages-mars.com'
     browser.visit(url)
 
+    # Find and click the full image button
+    full_image_elem = browser.find_by_tag('button')[1]
+    full_image_elem.click()
 
-    # In[26]:
-
-
+    # Parse the resulting html with soup
     html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
+    img_soup = soup(html, 'html.parser')
 
+    # Add try/except for error handling
+    try:
+        # find the relative image url
+        img_url_rel = img_soup.find('img', class_='fancybox-image').get('src')
 
-    # In[27]:
+    except AttributeError:
+        return None
 
+    # Use the base url to create an absolute url
+    img_url = f'https://spaceimages-mars.com/{img_url_rel}'
 
-    mars_weather_all = soup.find_all('p', class_='TweetTextSize TweetTextSize--normal js-tweet-text tweet-text')
+    return img_url
 
 
-    # In[28]:
+def mars_facts():
+    # Add try/except for error handling
+    try:
+        # use 'read_html' to scrape the facts table into a dataframe
+        df = pd.read_html('https://galaxyfacts-mars.com')[0]
 
+    except BaseException:
+        return None
 
-    mars_weather_all[8]
+    # assign columns and set index of dataframe
+    df.columns = ['Description', 'Mars', 'Earth']
+    df.set_index('Description', inplace=True)
 
+    # Convert dataframe into HTML format, add bootstrap
+    return df.to_html(classes="table table-striped")
 
-    # In[29]:
 
+def hemispheres(browser):
+    url = 'https://marshemispheres.com/'
 
-    mars_weather = mars_weather_all[8].text.strip()
+    browser.visit(url + 'index.html')
 
+    # Click the link, find the sample anchor, return the href
+    hemisphere_image_urls = []
+    for i in range(4):
+        # Find the elements on each loop to avoid a stale element exception
+        browser.find_by_css("a.product-item img")[i].click()
+        hemi_data = scrape_hemisphere(browser.html)
+        hemi_data['img_url'] = url + hemi_data['img_url']
+        # Append hemisphere object to list
+        hemisphere_image_urls.append(hemi_data)
+        # Finally, we navigate backwards
+        browser.back()
 
-    # In[30]:
+    return hemisphere_image_urls
 
 
-    mars_weather
+def scrape_hemisphere(html_text):
+    # parse html text
+    hemi_soup = soup(html_text, "html.parser")
 
+    # adding try/except for error handling
+    try:
+        title_elem = hemi_soup.find("h2", class_="title").get_text()
+        sample_elem = hemi_soup.find("a", text="Sample").get("href")
 
-    # In[31]:
+    except AttributeError:
+        # Image error will return None, for better front-end handling
+        title_elem = None
+        sample_elem = None
 
+    hemispheres = {
+        "title": title_elem,
+        "img_url": sample_elem
+    }
 
-    url = 'https://space-facts.com/mars/'
+    return hemispheres
 
-    tables = pd.read_html(url)
-    tables
 
+if __name__ == "__main__":
 
-    # In[32]:
-
-
-    browser.quit()
-
-
-    # In[33]:
-
-
-    type(tables)
-
-
-    # In[34]:
-
-
-    df = tables[0]
-    df.head()
-
-
-    # In[35]:
-
-
-    df = df.rename(columns={0: "Description", 1: "Value"})
-
-
-    # In[36]:
-
-
-    df.head()
-
-
-    # In[37]:
-
-
-    html_table = df.to_html()
-    html_table
-
-
-    # In[38]:
-
-
-    # You can also save the table directly to a file.
-
-    df.to_html('table.html')
-
-    # OSX Users can run this to open the file in a browser, 
-    # or you can manually find the file and open it in the browser
-    # get_ipython().system('open table.html')
-
-
-    # In[39]:
-
-
-    executable_path = {'executable_path': '/usr/local/bin/chromedriver'}
-    browser = Browser('chrome', **executable_path, headless=False)
-
-
-    # In[40]:
-
-
-    url = 'https://astrogeology.usgs.gov/search/results?q=hemisphere+enhanced&k1=target&v1=Mars'
-    browser.visit(url)
-
-
-    # In[41]:
-
-
-    html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-
-
-    # In[42]:
-
-
-    browser.click_link_by_partial_text('Cerberus')
-    html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-    Cerberus_title = soup.title.text.strip()
-    Cerberus_url = soup.find('a', target='_blank')['href']
-    browser.back()
-
-    browser.click_link_by_partial_text('Schiaparelli')
-    html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-    Schiaparelli_title = soup.title.text.strip()
-    Schiaparelli_url = soup.find('a', target='_blank')['href']
-    browser.back()
-
-    browser.click_link_by_partial_text('Syrtis Major')
-    html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-    Syrtis_Major_title = soup.title.text.strip()
-    Syrtis_Major_url = soup.find('a', target='_blank')['href']
-    browser.back()
-
-    browser.click_link_by_partial_text('Valles Marineris')
-    html = browser.html
-    soup = BeautifulSoup(html, 'html.parser')
-    Valles_Marineris_title = soup.title.text.strip()
-    Valles_Marineris_url = soup.find('a', target='_blank')['href']
-
-
-    # In[43]:
-
-
-    browser.quit()
-
-
-    # In[44]:
-
-
-    Cerberus_url
-
-
-    # In[45]:
-
-
-    Cerberus_title
-
-
-    # In[46]:
-
-
-    Schiaparelli_url
-
-
-    # In[47]:
-
-
-    Schiaparelli_title
-
-
-    # In[48]:
-
-
-    Syrtis_Major_url
-
-
-    # In[49]:
-
-
-    Syrtis_Major_title
-
-
-    # In[50]:
-
-
-    Valles_Marineris_url
-
-
-    # In[51]:
-
-
-    Valles_Marineris_title
-
-
-    # In[52]:
-
-
-    hemisphere_image_urls = [
-        {"title": f"{Valles_Marineris_title}", "img_url": f"{Valles_Marineris_url}"},
-        {"title": f"{Cerberus_title}", "img_url": f"{Cerberus_url}"},
-        {"title": f"{Schiaparelli_title}", "img_url": f"{Schiaparelli_url}"},
-        {"title": f"{Syrtis_Major_title}", "img_url": f"{Syrtis_Major_url}"},
-    ]
-
-#     # create soup object from html
-#     html = browser.html
-#     report = BeautifulSoup(html, "html.parser")
-#     mars_report = report.find_all("p")
-#     # add it to our surf data dict
-#     mars_data["report"] = build_report(mars_report)
-#     # return our surf data dict
-
-    browser.quit()
-    return mars_data
-
-
-# # # helper function to build surf report
-# # def build_report(mars_report):
-# #     final_report = ""
-# #     for p in mars_report:
-# #         final_report += " " + p.get_text()
-# #         print(final_report)
-# #     return final_report
-
-    # The default port used by MongoDB is 27017
-    # https://docs.mongodb.com/manual/reference/default-mongodb-port/
-    conn = 'mongodb://localhost:27017'
-    myclient = pymongo.MongoClient(conn)
-
-    # Define the 'mars_app' database in Mongo
-    # db = myclient[mars_app]
-
-    # Insert a document into the 'mars' collection
-    # db.mars.insert_one(hemisphere_image_urls)
-    # mars.insert(hemisphere_image_urls)
-
-    mydb = myclient["mars_app"]
-    mycol = mydb["mars"]
-
-    # mydict = { "name": "John", "address": "Highway 37" }
-
-    x = mycol.insert_one(Cerberus_url)
+    # If running as script, print scraped data
+    print(scrape_all())
